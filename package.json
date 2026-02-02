@@ -1,0 +1,21 @@
+{
+  "name": "browser-challenge-agent",
+  "version": "1.0.0",
+  "description": "Automated agent to solve the 30-step Browser Navigation Challenge",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js",
+    "install-browsers": "npx playwright install chromium"
+  },
+  "keywords": [
+    "browser-automation",
+    "playwright",
+    "web-challenge",
+    "agent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.40.0"
+  }
+}

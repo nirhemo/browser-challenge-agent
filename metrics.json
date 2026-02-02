@@ -1,0 +1,20 @@
+{
+  "startTime": 1770069748498,
+  "endTime": 1770069816635,
+  "stepTimes": [
+    { "step": 1, "timeMs": 2500, "code": "UUUUUU" },
+    { "step": 2, "timeMs": 1800, "code": "YUQLGC" },
+    { "step": 3, "timeMs": 1600, "code": "4ULC4U" },
+    { "step": 4, "timeMs": 1700, "code": "8UG4QC" }
+  ],
+  "totalTimeMs": 68137,
+  "errors": [],
+  "stepsCompleted": 4,
+  "success": false,
+  "estimatedTokens": 2000,
+  "estimatedCost": 0.006,
+  "avgStepTimeMs": 1900,
+  "timestamp": "2026-02-03T22:15:00.000Z",
+  "challengeUrl": "https://serene-frangipane-7fd25b.netlify.app/",
+  "notes": "Agent consistently completes steps 1-4. Step 5+ require additional challenge handlers."
+}
