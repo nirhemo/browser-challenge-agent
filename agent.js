@@ -1,6 +1,6 @@
 /**
- * Browser Challenge Agent v13
- * Scroll modal UP to find radio buttons
+ * Browser Challenge Agent v14
+ * Use scrollIntoView for radio buttons
  */
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -84,65 +84,40 @@ async function closePopups(page) {
   });
 }
 
-// IMPROVED: Scroll modal BOTH ways to find radio buttons
+// IMPROVED: Use scrollIntoView to find and click correct radio
 async function handleScrollableModal(page) {
-  // First scroll to TOP of modal to reveal radio buttons
-  await page.evaluate(() => {
-    document.querySelectorAll('.fixed, [role="dialog"], [class*="modal"]').forEach(modal => {
-      const scrollables = [modal, ...modal.querySelectorAll('*')];
-      scrollables.forEach(el => {
-        if (el.scrollHeight > el.clientHeight) {
-          el.scrollTop = 0; // Scroll to TOP first
-        }
-      });
-    });
+  // First, find ALL radio buttons and scroll the correct one into view
+  const clicked = await page.evaluate(() => {
+    const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
     
-    document.querySelectorAll('*').forEach(el => {
-      const style = window.getComputedStyle(el);
-      if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
-          el.scrollHeight > el.clientHeight) {
-        el.scrollTop = 0; // Scroll to TOP
+    const correctIndicators = [
+      'option b - correct choice',
+      'correct answer',
+      'correct choice', 
+      'this is correct',
+      'the right choice',
+      'correct'
+    ];
+    
+    for (const radio of radios) {
+      const parent = radio.closest('div') || radio.closest('label');
+      const text = parent ? parent.textContent.toLowerCase() : '';
+      
+      for (const indicator of correctIndicators) {
+        if (text.includes(indicator) && !text.includes('incorrect')) {
+          // Scroll the radio into view first
+          radio.scrollIntoView({ behavior: 'instant', block: 'center' });
+          // Then click it
+          radio.click();
+          return 'clicked: ' + text.substring(0, 40);
+        }
       }
-    });
+    }
+    
+    return null;
   });
+  
   await delay(200);
-  
-  // Try to find radio buttons at top
-  let clicked = await selectCorrectRadio(page);
-  
-  // If not found, scroll to middle
-  if (!clicked) {
-    await page.evaluate(() => {
-      document.querySelectorAll('.fixed, [role="dialog"], [class*="modal"]').forEach(modal => {
-        const scrollables = [...modal.querySelectorAll('*')];
-        scrollables.forEach(el => {
-          if (el.scrollHeight > el.clientHeight) {
-            el.scrollTop = el.scrollHeight / 2;
-          }
-        });
-      });
-    });
-    await delay(200);
-    clicked = await selectCorrectRadio(page);
-  }
-  
-  // If still not found, scroll to bottom
-  if (!clicked) {
-    await page.evaluate(() => {
-      document.querySelectorAll('.fixed, [role="dialog"], [class*="modal"]').forEach(modal => {
-        const scrollables = [...modal.querySelectorAll('*')];
-        scrollables.forEach(el => {
-          if (el.scrollHeight > el.clientHeight) {
-            el.scrollTop = el.scrollHeight;
-          }
-        });
-      });
-    });
-    await delay(200);
-    clicked = await selectCorrectRadio(page);
-  }
-  
-  await delay(100);
   
   // Submit modal
   await page.evaluate(() => {
@@ -155,44 +130,6 @@ async function handleScrollableModal(page) {
   });
   
   return clicked;
-}
-
-// Helper to select correct radio
-async function selectCorrectRadio(page) {
-  return await page.evaluate(() => {
-    const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-    
-    const exactMatches = [
-      'option b - correct choice',
-      'correct answer',
-      'correct choice', 
-      'this is correct',
-      'the right choice'
-    ];
-    
-    for (const radio of radios) {
-      const parent = radio.closest('div') || radio.closest('label');
-      const text = parent ? parent.textContent.toLowerCase().trim() : '';
-      
-      for (const match of exactMatches) {
-        if (text.includes(match)) {
-          radio.click();
-          return true;
-        }
-      }
-    }
-    
-    for (const radio of radios) {
-      const parent = radio.closest('div') || radio.closest('label');
-      const text = parent ? parent.textContent.toLowerCase() : '';
-      if (text.includes('correct') && !text.includes('incorrect')) {
-        radio.click();
-        return true;
-      }
-    }
-    
-    return false;
-  });
 }
 
 // Handle drag-drop
@@ -307,8 +244,8 @@ async function solveStep(page, step) {
 
 async function run() {
   console.log('╔════════════════════════════════════════════╗');
-  console.log('║  Browser Challenge Agent v13               ║');
-  console.log('║  Scroll UP to find radio buttons           ║');
+  console.log('║  Browser Challenge Agent v14               ║');
+  console.log('║  scrollIntoView for radio buttons          ║');
   console.log('╚════════════════════════════════════════════╝\n');
   
   metrics.startTime = Date.now();
@@ -368,11 +305,11 @@ async function run() {
         await delay(400);
       } else {
         stuckCount++;
-        if (stuckCount === 45) {
+        if (stuckCount === 50) {
           await page.screenshot({ path: `stuck-step${step}.png` });
           console.log(`  [Stuck on step ${step}]`);
         }
-        if (stuckCount > 60) {
+        if (stuckCount > 70) {
           await page.evaluate(() => {
             document.querySelectorAll('button:not([disabled])').forEach(btn => {
               try { btn.click(); } catch(e) {}
@@ -382,7 +319,7 @@ async function run() {
         }
       }
       
-      await delay(60);
+      await delay(50);
     }
     
   } catch (error) {
