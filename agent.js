@@ -265,10 +265,33 @@ async function clickFloatingButtons(page) {
 
 async function handleHover(page) {
   await page.evaluate(() => {
+    // Hover on elements with "hover" in class
     document.querySelectorAll('[class*="hover"]').forEach(el => {
       el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+      el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    });
+    
+    // Also hover on elements that mention hovering in text
+    document.querySelectorAll('*').forEach(el => {
+      const text = (el.textContent || '').toLowerCase();
+      if (text.includes('hover here') || text.includes('hover to reveal') || text.includes('hover over')) {
+        el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+        el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      }
     });
   });
+}
+
+// Also use Playwright hover for better interaction
+async function handleHoverPlaywright(page) {
+  try {
+    // Find hover target by text
+    const hoverTarget = page.locator('text=Hover here').first();
+    if (await hoverTarget.count() > 0) {
+      await hoverTarget.hover();
+      console.log('  [Hovered on reveal box]');
+    }
+  } catch (e) {}
 }
 
 async function handleScroll(page) {
@@ -319,7 +342,10 @@ async function solveStep(page, step) {
   await delay(100);
   
   await handleHover(page);
-  await delay(50);
+  await delay(100);
+  
+  await handleHoverPlaywright(page);
+  await delay(200);
   
   await closePopups(page);
   
@@ -335,8 +361,8 @@ async function solveStep(page, step) {
 
 async function run() {
   console.log('╔════════════════════════════════════════════╗');
-  console.log('║  Browser Challenge Agent v25               ║');
-  console.log('║  Handle no-radio modals                    ║');
+  console.log('║  Browser Challenge Agent v26               ║');
+  console.log('║  Handle hover challenges                   ║');
   console.log('╚════════════════════════════════════════════╝\n');
   
   metrics.startTime = Date.now();
