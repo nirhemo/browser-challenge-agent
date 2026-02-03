@@ -90,8 +90,20 @@ async function handleScrollableModal(page) {
   
   if (!hasModal) return false;
   
-  // Scroll through modal
-  for (let scrollPct = 0; scrollPct <= 100; scrollPct += 20) {
+  // First scroll to TOP of modal
+  await page.evaluate(() => {
+    document.querySelectorAll('*').forEach(el => {
+      const style = window.getComputedStyle(el);
+      if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
+          el.scrollHeight > el.clientHeight) {
+        el.scrollTop = 0;
+      }
+    });
+  });
+  await delay(150);
+  
+  // Scroll through modal - start from 0
+  for (let scrollPct = 0; scrollPct <= 100; scrollPct += 15) {
     await page.evaluate((pct) => {
       document.querySelectorAll('*').forEach(el => {
         const style = window.getComputedStyle(el);
