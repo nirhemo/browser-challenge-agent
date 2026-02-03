@@ -1,6 +1,6 @@
 /**
- * Browser Challenge Agent v19
- * Avoid trap buttons, only click radios in modals
+ * Browser Challenge Agent v20
+ * Smart radio selection - avoid negative words, prefer positive
  */
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -58,7 +58,7 @@ async function extractCode(page) {
     
     const text = document.body.innerText;
     const patterns = [/\b[A-Z]{6}\b/g, /\b\d{6}\b/g, /\b[A-Z0-9]{6}\b/g];
-    const skip = ['SUBMIT', 'SELECT', 'OPTION', 'BUTTON', 'SCROLL', 'COOKIE', 'PLEASE', 'ACCEPT', 'REVEAL', 'WRONG', 'HIDDEN', 'SECTIO'];
+    const skip = ['SUBMIT', 'SELECT', 'OPTION', 'BUTTON', 'SCROLL', 'COOKIE', 'PLEASE', 'ACCEPT', 'REVEAL', 'WRONG', 'HIDDEN', 'SECTIO', 'CHOOSE'];
     for (const p of patterns) {
       const matches = text.match(p);
       if (matches) {
@@ -82,7 +82,7 @@ async function closePopups(page) {
   });
 }
 
-// Handle modal ONLY with radio buttons - no other clicking
+// IMPROVED: Smart radio selection
 async function handleScrollableModal(page) {
   const hasModal = await page.evaluate(() => {
     return !!document.querySelector('.fixed, [role="dialog"]');
@@ -90,7 +90,7 @@ async function handleScrollableModal(page) {
   
   if (!hasModal) return false;
   
-  // Scroll incrementally through modal to find radio buttons
+  // Scroll through modal
   for (let scrollPct = 0; scrollPct <= 100; scrollPct += 20) {
     await page.evaluate((pct) => {
       document.querySelectorAll('*').forEach(el => {
@@ -102,32 +102,77 @@ async function handleScrollableModal(page) {
       });
     }, scrollPct);
     
-    await delay(100);
+    await delay(80);
     
-    // ONLY click radio buttons with "correct"
+    // SMART radio selection
     const clicked = await page.evaluate(() => {
       const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+      if (radios.length === 0) return false;
+      
+      // Negative words to AVOID
+      const negativeWords = ['incorrect', 'wrong', 'not this', 'don\'t', 'never', 'bad', 'false'];
+      // Positive words to PREFER
+      const positiveWords = ['correct', 'right', 'select this', 'choose me', 'pick me', 'this one', 'yes', 'true'];
+      
+      let bestRadio = null;
+      let bestScore = -100;
       
       for (const radio of radios) {
         const parent = radio.closest('div') || radio.closest('label') || radio.parentElement;
-        const text = parent ? parent.textContent.toLowerCase() : '';
+        const text = parent ? parent.textContent.toLowerCase().trim() : '';
         
-        if (text.includes('correct') && !text.includes('incorrect')) {
-          radio.scrollIntoView({ behavior: 'instant', block: 'center' });
-          radio.click();
-          return true;
+        let score = 0;
+        
+        // Check for positive words
+        for (const pos of positiveWords) {
+          if (text.includes(pos)) score += 10;
+        }
+        
+        // Check for negative words (penalize heavily)
+        for (const neg of negativeWords) {
+          if (text.includes(neg)) score -= 20;
+        }
+        
+        // "Select this one" is a strong hint
+        if (text.includes('select this')) score += 15;
+        
+        // "Option B" patterns often correct in quizzes
+        if (text.includes('option b')) score += 5;
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestRadio = radio;
         }
       }
+      
+      // If no clear winner, pick first non-negative option
+      if (bestScore <= 0) {
+        for (const radio of radios) {
+          const parent = radio.closest('div') || radio.closest('label') || radio.parentElement;
+          const text = parent ? parent.textContent.toLowerCase() : '';
+          const hasNegative = negativeWords.some(neg => text.includes(neg));
+          if (!hasNegative) {
+            bestRadio = radio;
+            break;
+          }
+        }
+      }
+      
+      if (bestRadio) {
+        bestRadio.scrollIntoView({ behavior: 'instant', block: 'center' });
+        bestRadio.click();
+        return true;
+      }
+      
       return false;
     });
     
     if (clicked) {
       await delay(150);
-      // Submit modal
       await page.evaluate(() => {
         document.querySelectorAll('button').forEach(btn => {
           const text = btn.textContent || '';
-          if ((text.includes('Submit') && text.includes('Continue')) || text === 'Submit & Continue' || text === 'Submit') {
+          if (text.includes('Submit')) {
             if (!btn.disabled) btn.click();
           }
         });
@@ -139,7 +184,6 @@ async function handleScrollableModal(page) {
   return false;
 }
 
-// ONLY run when NO modal present
 async function findNavigationButtonOnMainPage(page) {
   const hasModal = await page.evaluate(() => {
     return !!document.querySelector('.fixed, [role="dialog"]');
@@ -147,7 +191,6 @@ async function findNavigationButtonOnMainPage(page) {
   
   if (hasModal) return false;
   
-  // Scroll and find navigation
   for (let scrollPos = 0; scrollPos <= 10; scrollPos++) {
     await page.evaluate((pos) => {
       window.scrollTo(0, document.body.scrollHeight * pos / 10);
@@ -248,11 +291,9 @@ async function solveStep(page, step) {
     await delay(30);
   }
   
-  // Handle modal (radio only)
   await handleScrollableModal(page);
   await delay(150);
   
-  // Only if no modal, try nav button
   await findNavigationButtonOnMainPage(page);
   await delay(100);
   
@@ -286,8 +327,8 @@ async function solveStep(page, step) {
 
 async function run() {
   console.log('╔════════════════════════════════════════════╗');
-  console.log('║  Browser Challenge Agent v19               ║');
-  console.log('║  Avoid trap buttons                        ║');
+  console.log('║  Browser Challenge Agent v20               ║');
+  console.log('║  Smart radio selection                     ║');
   console.log('╚════════════════════════════════════════════╝\n');
   
   metrics.startTime = Date.now();
