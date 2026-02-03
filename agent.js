@@ -1,6 +1,6 @@
 /**
- * Browser Challenge Agent v14
- * Use scrollIntoView for radio buttons
+ * Browser Challenge Agent v15
+ * Aggressive modal scrolling to reveal radio buttons
  */
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -40,7 +40,6 @@ async function isComplete(page) {
   } catch (e) { return false; }
 }
 
-// Extract code
 async function extractCode(page) {
   return await page.evaluate(() => {
     const dataCodeEl = document.querySelector('[data-challenge-code]');
@@ -72,7 +71,6 @@ async function extractCode(page) {
   });
 }
 
-// Close popups
 async function closePopups(page) {
   await page.evaluate(() => {
     document.querySelectorAll('button').forEach(btn => {
@@ -84,10 +82,34 @@ async function closePopups(page) {
   });
 }
 
-// IMPROVED: Use scrollIntoView to find and click correct radio
+// IMPROVED: Aggressively scroll within modal to find radio buttons
 async function handleScrollableModal(page) {
-  // First, find ALL radio buttons and scroll the correct one into view
-  const clicked = await page.evaluate(() => {
+  // First try to find modal's scrollable container and scroll it
+  await page.evaluate(() => {
+    // Find all elements that look like scrollable modal content
+    const scrollables = document.querySelectorAll('[class*="overflow"], [style*="overflow"], .fixed > div, [role="dialog"] > div');
+    
+    scrollables.forEach(el => {
+      if (el.scrollHeight > el.clientHeight) {
+        // Scroll to bottom to reveal radio buttons
+        el.scrollTop = el.scrollHeight;
+      }
+    });
+    
+    // Also try scrolling any div that has overflow-y auto/scroll
+    document.querySelectorAll('div').forEach(div => {
+      const style = window.getComputedStyle(div);
+      if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
+          div.scrollHeight > div.clientHeight + 10) {
+        div.scrollTop = div.scrollHeight;
+      }
+    });
+  });
+  
+  await delay(200);
+  
+  // Now try to find and click correct radio
+  let clicked = await page.evaluate(() => {
     const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
     
     const correctIndicators = [
@@ -105,21 +127,50 @@ async function handleScrollableModal(page) {
       
       for (const indicator of correctIndicators) {
         if (text.includes(indicator) && !text.includes('incorrect')) {
-          // Scroll the radio into view first
           radio.scrollIntoView({ behavior: 'instant', block: 'center' });
-          // Then click it
           radio.click();
-          return 'clicked: ' + text.substring(0, 40);
+          return true;
         }
       }
     }
-    
-    return null;
+    return false;
   });
   
-  await delay(200);
+  // If not found, scroll modal multiple times and try again
+  if (!clicked) {
+    for (let scroll = 0; scroll < 5; scroll++) {
+      await page.evaluate((s) => {
+        document.querySelectorAll('div').forEach(div => {
+          const style = window.getComputedStyle(div);
+          if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
+              div.scrollHeight > div.clientHeight) {
+            div.scrollTop = (div.scrollHeight / 5) * (s + 1);
+          }
+        });
+      }, scroll);
+      await delay(100);
+      
+      clicked = await page.evaluate(() => {
+        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        for (const radio of radios) {
+          const parent = radio.closest('div') || radio.closest('label');
+          const text = parent ? parent.textContent.toLowerCase() : '';
+          if (text.includes('correct') && !text.includes('incorrect')) {
+            radio.scrollIntoView({ behavior: 'instant', block: 'center' });
+            radio.click();
+            return true;
+          }
+        }
+        return false;
+      });
+      
+      if (clicked) break;
+    }
+  }
   
-  // Submit modal
+  await delay(150);
+  
+  // Submit
   await page.evaluate(() => {
     document.querySelectorAll('button').forEach(btn => {
       const text = btn.textContent || '';
@@ -132,7 +183,6 @@ async function handleScrollableModal(page) {
   return clicked;
 }
 
-// Handle drag-drop
 async function handleDragDrop(page) {
   try {
     const pieces = await page.$$('[draggable="true"], [class*="piece"]');
@@ -144,7 +194,6 @@ async function handleDragDrop(page) {
   } catch (e) {}
 }
 
-// Click reveal buttons
 async function clickRevealButtons(page) {
   await page.evaluate(() => {
     document.querySelectorAll('button').forEach(btn => {
@@ -156,7 +205,6 @@ async function clickRevealButtons(page) {
   });
 }
 
-// Click floating buttons
 async function clickFloatingButtons(page) {
   await page.evaluate(() => {
     const floatingTexts = ['click me!', 'here!', 'link!', 'try this!', 'button!', 'moving!', 'click here!'];
@@ -169,7 +217,6 @@ async function clickFloatingButtons(page) {
   });
 }
 
-// Hover
 async function handleHover(page) {
   await page.evaluate(() => {
     document.querySelectorAll('[class*="hover"]').forEach(el => {
@@ -178,14 +225,12 @@ async function handleHover(page) {
   });
 }
 
-// Page scroll  
 async function handleScroll(page) {
   await page.evaluate(() => window.scrollTo(0, 600));
   await delay(50);
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
 }
 
-// Enter code
 async function enterCode(page, code) {
   try {
     const input = await page.$('input[placeholder*="code"]');
@@ -244,8 +289,8 @@ async function solveStep(page, step) {
 
 async function run() {
   console.log('╔════════════════════════════════════════════╗');
-  console.log('║  Browser Challenge Agent v14               ║');
-  console.log('║  scrollIntoView for radio buttons          ║');
+  console.log('║  Browser Challenge Agent v15               ║');
+  console.log('║  Aggressive modal scrolling                ║');
   console.log('╚════════════════════════════════════════════╝\n');
   
   metrics.startTime = Date.now();
@@ -269,7 +314,7 @@ async function run() {
     let lastStep = 0;
     let stuckCount = 0;
     
-    for (let attempt = 0; attempt < 800; attempt++) {
+    for (let attempt = 0; attempt < 900; attempt++) {
       if (Date.now() - metrics.startTime > MAX_TIME_MS) {
         console.log('\n⏰ Time limit!');
         break;
@@ -302,14 +347,14 @@ async function run() {
         console.log(`  Code: ${code}`);
         await enterCode(page, code);
         console.log('  ✓ Submitted');
-        await delay(400);
+        await delay(350);
       } else {
         stuckCount++;
-        if (stuckCount === 50) {
+        if (stuckCount === 55) {
           await page.screenshot({ path: `stuck-step${step}.png` });
           console.log(`  [Stuck on step ${step}]`);
         }
-        if (stuckCount > 70) {
+        if (stuckCount > 75) {
           await page.evaluate(() => {
             document.querySelectorAll('button:not([disabled])').forEach(btn => {
               try { btn.click(); } catch(e) {}
@@ -319,7 +364,7 @@ async function run() {
         }
       }
       
-      await delay(50);
+      await delay(40);
     }
     
   } catch (error) {
