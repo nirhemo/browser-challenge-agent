@@ -1,6 +1,6 @@
 /**
- * Browser Challenge Agent v15
- * Aggressive modal scrolling to reveal radio buttons
+ * Browser Challenge Agent v16
+ * Keyboard scrolling in modals (End key)
  */
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -82,26 +82,32 @@ async function closePopups(page) {
   });
 }
 
-// IMPROVED: Aggressively scroll within modal to find radio buttons
+// Use keyboard to scroll modal + wheel events
 async function handleScrollableModal(page) {
-  // First try to find modal's scrollable container and scroll it
+  // Click inside modal to focus it
+  try {
+    const modal = await page.$('.fixed, [role="dialog"], [class*="modal"]');
+    if (modal) {
+      await modal.click();
+      await delay(50);
+    }
+  } catch (e) {}
+  
+  // Use keyboard to scroll - End key goes to bottom
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press('End');
+    await delay(100);
+    await page.keyboard.press('PageDown');
+    await delay(100);
+  }
+  
+  // Also try mouse wheel scroll on any overflow element
   await page.evaluate(() => {
-    // Find all elements that look like scrollable modal content
-    const scrollables = document.querySelectorAll('[class*="overflow"], [style*="overflow"], .fixed > div, [role="dialog"] > div');
-    
-    scrollables.forEach(el => {
-      if (el.scrollHeight > el.clientHeight) {
-        // Scroll to bottom to reveal radio buttons
-        el.scrollTop = el.scrollHeight;
-      }
-    });
-    
-    // Also try scrolling any div that has overflow-y auto/scroll
-    document.querySelectorAll('div').forEach(div => {
-      const style = window.getComputedStyle(div);
+    document.querySelectorAll('*').forEach(el => {
+      const style = window.getComputedStyle(el);
       if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
-          div.scrollHeight > div.clientHeight + 10) {
-        div.scrollTop = div.scrollHeight;
+          el.scrollHeight > el.clientHeight) {
+        el.scrollTop = el.scrollHeight;
       }
     });
   });
@@ -109,64 +115,21 @@ async function handleScrollableModal(page) {
   await delay(200);
   
   // Now try to find and click correct radio
-  let clicked = await page.evaluate(() => {
+  const clicked = await page.evaluate(() => {
     const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-    
-    const correctIndicators = [
-      'option b - correct choice',
-      'correct answer',
-      'correct choice', 
-      'this is correct',
-      'the right choice',
-      'correct'
-    ];
     
     for (const radio of radios) {
       const parent = radio.closest('div') || radio.closest('label');
       const text = parent ? parent.textContent.toLowerCase() : '';
       
-      for (const indicator of correctIndicators) {
-        if (text.includes(indicator) && !text.includes('incorrect')) {
-          radio.scrollIntoView({ behavior: 'instant', block: 'center' });
-          radio.click();
-          return true;
-        }
+      if (text.includes('correct') && !text.includes('incorrect')) {
+        radio.scrollIntoView({ behavior: 'instant', block: 'center' });
+        radio.click();
+        return true;
       }
     }
     return false;
   });
-  
-  // If not found, scroll modal multiple times and try again
-  if (!clicked) {
-    for (let scroll = 0; scroll < 5; scroll++) {
-      await page.evaluate((s) => {
-        document.querySelectorAll('div').forEach(div => {
-          const style = window.getComputedStyle(div);
-          if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
-              div.scrollHeight > div.clientHeight) {
-            div.scrollTop = (div.scrollHeight / 5) * (s + 1);
-          }
-        });
-      }, scroll);
-      await delay(100);
-      
-      clicked = await page.evaluate(() => {
-        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
-        for (const radio of radios) {
-          const parent = radio.closest('div') || radio.closest('label');
-          const text = parent ? parent.textContent.toLowerCase() : '';
-          if (text.includes('correct') && !text.includes('incorrect')) {
-            radio.scrollIntoView({ behavior: 'instant', block: 'center' });
-            radio.click();
-            return true;
-          }
-        }
-        return false;
-      });
-      
-      if (clicked) break;
-    }
-  }
   
   await delay(150);
   
@@ -289,8 +252,8 @@ async function solveStep(page, step) {
 
 async function run() {
   console.log('╔════════════════════════════════════════════╗');
-  console.log('║  Browser Challenge Agent v15               ║');
-  console.log('║  Aggressive modal scrolling                ║');
+  console.log('║  Browser Challenge Agent v16               ║');
+  console.log('║  Keyboard scrolling                        ║');
   console.log('╚════════════════════════════════════════════╝\n');
   
   metrics.startTime = Date.now();
