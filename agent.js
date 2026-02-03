@@ -1,6 +1,6 @@
 /**
- * Browser Challenge Agent v17
- * Mouse wheel scrolling + tab into modal
+ * Browser Challenge Agent v18
+ * Handle both modal radio + main page navigation button
  */
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -58,7 +58,7 @@ async function extractCode(page) {
     
     const text = document.body.innerText;
     const patterns = [/\b[A-Z]{6}\b/g, /\b\d{6}\b/g, /\b[A-Z0-9]{6}\b/g];
-    const skip = ['SUBMIT', 'SELECT', 'OPTION', 'BUTTON', 'SCROLL', 'COOKIE', 'PLEASE', 'ACCEPT', 'REVEAL', 'WRONG', 'HIDDEN'];
+    const skip = ['SUBMIT', 'SELECT', 'OPTION', 'BUTTON', 'SCROLL', 'COOKIE', 'PLEASE', 'ACCEPT', 'REVEAL', 'WRONG', 'HIDDEN', 'SECTIO'];
     for (const p of patterns) {
       const matches = text.match(p);
       if (matches) {
@@ -82,36 +82,16 @@ async function closePopups(page) {
   });
 }
 
-// Use mouse wheel on modal + tab navigation
+// Handle modal with radio buttons
 async function handleScrollableModal(page) {
-  // Find scrollable element in modal and get its position
-  const scrollInfo = await page.evaluate(() => {
-    const scrollables = [];
-    document.querySelectorAll('*').forEach(el => {
-      const style = window.getComputedStyle(el);
-      if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
-          el.scrollHeight > el.clientHeight + 20) {
-        const rect = el.getBoundingClientRect();
-        scrollables.push({
-          x: rect.x + rect.width / 2,
-          y: rect.y + rect.height / 2,
-          height: el.scrollHeight
-        });
-      }
-    });
-    return scrollables[0] || null;
+  // Check if modal exists
+  const hasModal = await page.evaluate(() => {
+    return !!document.querySelector('.fixed, [role="dialog"]');
   });
   
-  if (scrollInfo) {
-    // Move mouse to scrollable area and use wheel
-    await page.mouse.move(scrollInfo.x, scrollInfo.y);
-    for (let i = 0; i < 10; i++) {
-      await page.mouse.wheel(0, 300);
-      await delay(50);
-    }
-  }
+  if (!hasModal) return false;
   
-  // Also use JS scroll
+  // Scroll within modal
   await page.evaluate(() => {
     document.querySelectorAll('*').forEach(el => {
       const style = window.getComputedStyle(el);
@@ -122,15 +102,9 @@ async function handleScrollableModal(page) {
     });
   });
   
-  await delay(200);
+  await delay(150);
   
-  // Tab through elements to find radios
-  for (let i = 0; i < 15; i++) {
-    await page.keyboard.press('Tab');
-    await delay(30);
-  }
-  
-  // Now try to find and click correct radio
+  // Click correct radio
   const clicked = await page.evaluate(() => {
     const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
     
@@ -147,9 +121,9 @@ async function handleScrollableModal(page) {
     return false;
   });
   
-  await delay(150);
+  await delay(100);
   
-  // Submit
+  // Submit modal
   await page.evaluate(() => {
     document.querySelectorAll('button').forEach(btn => {
       const text = btn.textContent || '';
@@ -160,6 +134,59 @@ async function handleScrollableModal(page) {
   });
   
   return clicked;
+}
+
+// NEW: Find and click navigation button on main page
+async function findNavigationButton(page) {
+  // Scroll through page looking for navigation buttons
+  for (let scrollPos = 0; scrollPos <= 10; scrollPos++) {
+    await page.evaluate((pos) => {
+      window.scrollTo(0, document.body.scrollHeight * pos / 10);
+    }, scrollPos);
+    await delay(100);
+    
+    // Look for navigation-style buttons or links
+    const clicked = await page.evaluate(() => {
+      const navTexts = ['continue', 'next', 'proceed', 'go', 'navigate', 'click here', 'button'];
+      
+      // Check buttons
+      for (const btn of document.querySelectorAll('button, a, [role="button"]')) {
+        const text = (btn.textContent || '').toLowerCase();
+        const isNav = navTexts.some(t => text.includes(t));
+        const isNotSubmit = !text.includes('submit');
+        
+        if (isNav && isNotSubmit && btn.offsetParent !== null) {
+          try { 
+            btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+            btn.click(); 
+            return true;
+          } catch(e) {}
+        }
+      }
+      
+      // Also check for any prominent button that might be hidden
+      for (const btn of document.querySelectorAll('button')) {
+        const text = (btn.textContent || '').trim();
+        const rect = btn.getBoundingClientRect();
+        // Look for buttons with reasonable size, not standard form buttons
+        if (text.length > 0 && text.length < 30 && rect.width > 50 && rect.height > 20) {
+          const notForm = !text.toLowerCase().includes('submit');
+          if (notForm && btn.offsetParent !== null) {
+            try { 
+              btn.click(); 
+              return true;
+            } catch(e) {}
+          }
+        }
+      }
+      
+      return false;
+    });
+    
+    if (clicked) return true;
+  }
+  
+  return false;
 }
 
 async function handleDragDrop(page) {
@@ -235,8 +262,13 @@ async function solveStep(page, step) {
     await delay(30);
   }
   
+  // Try modal first
   await handleScrollableModal(page);
-  await delay(200);
+  await delay(150);
+  
+  // Then try navigation button
+  await findNavigationButton(page);
+  await delay(100);
   
   await closePopups(page);
   
@@ -268,8 +300,8 @@ async function solveStep(page, step) {
 
 async function run() {
   console.log('╔════════════════════════════════════════════╗');
-  console.log('║  Browser Challenge Agent v17               ║');
-  console.log('║  Mouse wheel + Tab navigation              ║');
+  console.log('║  Browser Challenge Agent v18               ║');
+  console.log('║  Modal radio + Navigation button           ║');
   console.log('╚════════════════════════════════════════════╝\n');
   
   metrics.startTime = Date.now();
@@ -326,7 +358,7 @@ async function run() {
         console.log(`  Code: ${code}`);
         await enterCode(page, code);
         console.log('  ✓ Submitted');
-        await delay(350);
+        await delay(300);
       } else {
         stuckCount++;
         if (stuckCount === 55) {
@@ -334,11 +366,6 @@ async function run() {
           console.log(`  [Stuck on step ${step}]`);
         }
         if (stuckCount > 75) {
-          await page.evaluate(() => {
-            document.querySelectorAll('button:not([disabled])').forEach(btn => {
-              try { btn.click(); } catch(e) {}
-            });
-          });
           stuckCount = 0;
         }
       }
