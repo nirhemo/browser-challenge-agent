@@ -84,6 +84,20 @@ async function closePopups(page) {
 
 // Use Playwright locators to find radio buttons
 async function handleScrollableModal(page) {
+  // First, aggressively scroll modal to reveal hidden radio buttons
+  for (let i = 0; i <= 5; i++) {
+    await page.evaluate((pct) => {
+      document.querySelectorAll('*').forEach(el => {
+        const style = window.getComputedStyle(el);
+        if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
+            el.scrollHeight > el.clientHeight) {
+          el.scrollTop = el.scrollHeight * pct / 5;
+        }
+      });
+    }, i);
+    await delay(80);
+  }
+  
   try {
     // Check for radio buttons using Playwright locator
     const radios = page.locator('input[type="radio"]');
