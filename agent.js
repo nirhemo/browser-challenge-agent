@@ -1,6 +1,6 @@
 /**
- * Browser Challenge Agent v22
- * Use Playwright locators for radio buttons
+ * Browser Challenge Agent v24
+ * Debug modal structure, find radio buttons
  */
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -82,95 +82,122 @@ async function closePopups(page) {
   });
 }
 
-// Use Playwright locators to find radio buttons
+// DEBUG: Log modal structure and find radio buttons
 async function handleScrollableModal(page) {
-  // First, aggressively scroll modal to reveal hidden radio buttons
-  for (let i = 0; i <= 5; i++) {
+  // Check if modal exists and debug its structure
+  const modalInfo = await page.evaluate(() => {
+    const modal = document.querySelector('.fixed, [role="dialog"]');
+    if (!modal) return { hasModal: false };
+    
+    const radios = document.querySelectorAll('input[type="radio"]');
+    const scrollables = [];
+    
+    document.querySelectorAll('*').forEach(el => {
+      const style = window.getComputedStyle(el);
+      if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
+          el.scrollHeight > el.clientHeight) {
+        scrollables.push({
+          tag: el.tagName,
+          className: el.className,
+          scrollHeight: el.scrollHeight,
+          clientHeight: el.clientHeight
+        });
+      }
+    });
+    
+    return {
+      hasModal: true,
+      radioCount: radios.length,
+      scrollables: scrollables.slice(0, 3),
+      radioLabels: Array.from(radios).map(r => {
+        const p = r.closest('div') || r.closest('label');
+        return p ? p.textContent.substring(0, 40) : 'no label';
+      })
+    };
+  });
+  
+  if (!modalInfo.hasModal) return false;
+  
+  // Log debug info
+  if (modalInfo.radioCount > 0) {
+    console.log(`  [Modal: ${modalInfo.radioCount} radios found]`);
+    console.log(`  [Labels: ${modalInfo.radioLabels.join(' | ')}]`);
+  } else {
+    console.log(`  [Modal: 0 radios, scrollables: ${JSON.stringify(modalInfo.scrollables)}]`);
+  }
+  
+  // Scroll through modal MORE aggressively - 10 positions
+  for (let i = 0; i <= 10; i++) {
     await page.evaluate((pct) => {
       document.querySelectorAll('*').forEach(el => {
         const style = window.getComputedStyle(el);
         if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
             el.scrollHeight > el.clientHeight) {
-          el.scrollTop = el.scrollHeight * pct / 5;
+          el.scrollTop = el.scrollHeight * pct / 10;
         }
       });
     }, i);
-    await delay(80);
-  }
-  
-  try {
-    // Check for radio buttons using Playwright locator
-    const radios = page.locator('input[type="radio"]');
-    const count = await radios.count();
+    await delay(60);
     
-    if (count === 0) return false;
-    
-    // Find the correct one based on label text
-    for (let i = 0; i < count; i++) {
-      const radio = radios.nth(i);
-      const parent = radio.locator('xpath=..');
-      let text = '';
-      try {
-        text = (await parent.textContent({ timeout: 500 })).toLowerCase();
-      } catch (e) { continue; }
+    // Check for radio buttons at each scroll position
+    const radioClicked = await page.evaluate(() => {
+      const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+      if (radios.length === 0) return false;
       
-      // Check for correct indicators
-      const isCorrect = text.includes('correct') || text.includes('select this') || 
-                        text.includes('choose me') || text.includes('pick me') ||
-                        text.includes('this one');
-      const isWrong = text.includes('incorrect') || text.includes('wrong') || 
-                      text.includes('not this') || text.includes('don\'t');
+      const negatives = ['incorrect', 'wrong', 'not this', 'don\'t'];
+      const positives = ['correct', 'select this', 'choose me', 'this one', 'right'];
       
-      if (isCorrect && !isWrong) {
-        await radio.scrollIntoViewIfNeeded();
-        await radio.click();
-        await delay(150);
+      // Score each radio
+      let best = null;
+      let bestScore = -100;
+      
+      for (const radio of radios) {
+        const parent = radio.closest('div') || radio.closest('label') || radio.parentElement;
+        const text = parent ? parent.textContent.toLowerCase() : '';
         
-        // Click submit
-        const submitBtn = page.locator('button:has-text("Submit")');
-        if (await submitBtn.count() > 0) {
-          await submitBtn.first().click();
+        let score = 0;
+        for (const neg of negatives) if (text.includes(neg)) score -= 20;
+        for (const pos of positives) if (text.includes(pos)) score += 10;
+        
+        if (score > bestScore) {
+          bestScore = score;
+          best = radio;
         }
+      }
+      
+      // If no positive found, pick first non-negative
+      if (bestScore <= 0) {
+        for (const radio of radios) {
+          const parent = radio.closest('div') || radio.closest('label') || radio.parentElement;
+          const text = parent ? parent.textContent.toLowerCase() : '';
+          if (!negatives.some(n => text.includes(n))) {
+            best = radio;
+            break;
+          }
+        }
+      }
+      
+      if (best) {
+        best.scrollIntoView({ behavior: 'instant', block: 'center' });
+        best.click();
         return true;
       }
-    }
-    
-    // If no "correct" found, pick first non-wrong option
-    for (let i = 0; i < count; i++) {
-      const radio = radios.nth(i);
-      const parent = radio.locator('xpath=..');
-      let text = '';
-      try {
-        text = (await parent.textContent({ timeout: 500 })).toLowerCase();
-      } catch (e) { continue; }
-      
-      const isWrong = text.includes('incorrect') || text.includes('wrong') || 
-                      text.includes('not this') || text.includes('don\'t');
-      
-      if (!isWrong) {
-        await radio.scrollIntoViewIfNeeded();
-        await radio.click();
-        await delay(150);
-        
-        const submitBtn = page.locator('button:has-text("Submit")');
-        if (await submitBtn.count() > 0) {
-          await submitBtn.first().click();
-        }
-        return true;
-      }
-    }
-    
-  } catch (e) {
-    // Fallback to JS approach
-    await page.evaluate(() => {
-      document.querySelectorAll('*').forEach(el => {
-        const style = window.getComputedStyle(el);
-        if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
-            el.scrollHeight > el.clientHeight) {
-          el.scrollTop = el.scrollHeight;
-        }
-      });
+      return false;
     });
+    
+    if (radioClicked) {
+      await delay(100);
+      // Click submit
+      await page.evaluate(() => {
+        document.querySelectorAll('button').forEach(btn => {
+          const text = btn.textContent || '';
+          if (text.includes('Submit')) {
+            if (!btn.disabled) btn.click();
+          }
+        });
+      });
+      return true;
+    }
   }
   
   return false;
@@ -282,8 +309,8 @@ async function solveStep(page, step) {
 
 async function run() {
   console.log('╔════════════════════════════════════════════╗');
-  console.log('║  Browser Challenge Agent v22               ║');
-  console.log('║  Playwright locators for radios            ║');
+  console.log('║  Browser Challenge Agent v24               ║');
+  console.log('║  Debug modal + aggressive scroll           ║');
   console.log('╚════════════════════════════════════════════╝\n');
   
   metrics.startTime = Date.now();
@@ -343,13 +370,13 @@ async function run() {
         await delay(300);
       } else {
         stuckCount++;
-        if (stuckCount === 60) {
+        if (stuckCount === 70) {
           await page.screenshot({ path: `stuck-step${step}.png` });
           console.log(`  [Stuck on step ${step}]`);
         }
       }
       
-      await delay(35);
+      await delay(30);
     }
     
   } catch (error) {
