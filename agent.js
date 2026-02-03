@@ -126,6 +126,32 @@ async function handleScrollableModal(page) {
     console.log(`  [Modal: 0 radios, scrollables: ${JSON.stringify(modalInfo.scrollables)}]`);
   }
   
+  // If NO radios, this is a scroll-only modal - scroll to bottom and click button
+  if (modalInfo.radioCount === 0 && modalInfo.scrollables.length > 0) {
+    // Scroll to very bottom
+    await page.evaluate(() => {
+      document.querySelectorAll('*').forEach(el => {
+        const style = window.getComputedStyle(el);
+        if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
+            el.scrollHeight > el.clientHeight) {
+          el.scrollTop = el.scrollHeight;
+        }
+      });
+    });
+    await delay(200);
+    
+    // Click submit button if enabled
+    await page.evaluate(() => {
+      document.querySelectorAll('button').forEach(btn => {
+        const text = btn.textContent || '';
+        if (text.includes('Submit') && !btn.disabled) {
+          btn.click();
+        }
+      });
+    });
+    return false; // Let code extraction happen
+  }
+  
   // Scroll through modal MORE aggressively - 10 positions
   for (let i = 0; i <= 10; i++) {
     await page.evaluate((pct) => {
@@ -309,8 +335,8 @@ async function solveStep(page, step) {
 
 async function run() {
   console.log('╔════════════════════════════════════════════╗');
-  console.log('║  Browser Challenge Agent v24               ║');
-  console.log('║  Debug modal + aggressive scroll           ║');
+  console.log('║  Browser Challenge Agent v25               ║');
+  console.log('║  Handle no-radio modals                    ║');
   console.log('╚════════════════════════════════════════════╝\n');
   
   metrics.startTime = Date.now();
