@@ -1,6 +1,6 @@
 /**
- * Browser Challenge Agent v18
- * Handle both modal radio + main page navigation button
+ * Browser Challenge Agent v19
+ * Avoid trap buttons, only click radios in modals
  */
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -82,104 +82,90 @@ async function closePopups(page) {
   });
 }
 
-// Handle modal with radio buttons
+// Handle modal ONLY with radio buttons - no other clicking
 async function handleScrollableModal(page) {
-  // Check if modal exists
   const hasModal = await page.evaluate(() => {
     return !!document.querySelector('.fixed, [role="dialog"]');
   });
   
   if (!hasModal) return false;
   
-  // Scroll within modal
-  await page.evaluate(() => {
-    document.querySelectorAll('*').forEach(el => {
-      const style = window.getComputedStyle(el);
-      if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
-          el.scrollHeight > el.clientHeight) {
-        el.scrollTop = el.scrollHeight;
-      }
-    });
-  });
-  
-  await delay(150);
-  
-  // Click correct radio
-  const clicked = await page.evaluate(() => {
-    const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+  // Scroll incrementally through modal to find radio buttons
+  for (let scrollPct = 0; scrollPct <= 100; scrollPct += 20) {
+    await page.evaluate((pct) => {
+      document.querySelectorAll('*').forEach(el => {
+        const style = window.getComputedStyle(el);
+        if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
+            el.scrollHeight > el.clientHeight) {
+          el.scrollTop = (el.scrollHeight * pct / 100);
+        }
+      });
+    }, scrollPct);
     
-    for (const radio of radios) {
-      const parent = radio.closest('div') || radio.closest('label');
-      const text = parent ? parent.textContent.toLowerCase() : '';
+    await delay(100);
+    
+    // ONLY click radio buttons with "correct"
+    const clicked = await page.evaluate(() => {
+      const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
       
-      if (text.includes('correct') && !text.includes('incorrect')) {
-        radio.scrollIntoView({ behavior: 'instant', block: 'center' });
-        radio.click();
-        return true;
+      for (const radio of radios) {
+        const parent = radio.closest('div') || radio.closest('label') || radio.parentElement;
+        const text = parent ? parent.textContent.toLowerCase() : '';
+        
+        if (text.includes('correct') && !text.includes('incorrect')) {
+          radio.scrollIntoView({ behavior: 'instant', block: 'center' });
+          radio.click();
+          return true;
+        }
       }
-    }
-    return false;
-  });
-  
-  await delay(100);
-  
-  // Submit modal
-  await page.evaluate(() => {
-    document.querySelectorAll('button').forEach(btn => {
-      const text = btn.textContent || '';
-      if ((text.includes('Submit') && text.includes('Continue')) || text === 'Submit & Continue') {
-        if (!btn.disabled) btn.click();
-      }
+      return false;
     });
-  });
+    
+    if (clicked) {
+      await delay(150);
+      // Submit modal
+      await page.evaluate(() => {
+        document.querySelectorAll('button').forEach(btn => {
+          const text = btn.textContent || '';
+          if ((text.includes('Submit') && text.includes('Continue')) || text === 'Submit & Continue' || text === 'Submit') {
+            if (!btn.disabled) btn.click();
+          }
+        });
+      });
+      return true;
+    }
+  }
   
-  return clicked;
+  return false;
 }
 
-// NEW: Find and click navigation button on main page
-async function findNavigationButton(page) {
-  // Scroll through page looking for navigation buttons
+// ONLY run when NO modal present
+async function findNavigationButtonOnMainPage(page) {
+  const hasModal = await page.evaluate(() => {
+    return !!document.querySelector('.fixed, [role="dialog"]');
+  });
+  
+  if (hasModal) return false;
+  
+  // Scroll and find navigation
   for (let scrollPos = 0; scrollPos <= 10; scrollPos++) {
     await page.evaluate((pos) => {
       window.scrollTo(0, document.body.scrollHeight * pos / 10);
     }, scrollPos);
-    await delay(100);
+    await delay(80);
     
-    // Look for navigation-style buttons or links
     const clicked = await page.evaluate(() => {
-      const navTexts = ['continue', 'next', 'proceed', 'go', 'navigate', 'click here', 'button'];
+      const navTexts = ['continue', 'next', 'proceed'];
       
-      // Check buttons
-      for (const btn of document.querySelectorAll('button, a, [role="button"]')) {
-        const text = (btn.textContent || '').toLowerCase();
-        const isNav = navTexts.some(t => text.includes(t));
-        const isNotSubmit = !text.includes('submit');
+      for (const btn of document.querySelectorAll('button, a')) {
+        const text = (btn.textContent || '').toLowerCase().trim();
+        const isNav = navTexts.some(t => text === t || text.includes('to step'));
         
-        if (isNav && isNotSubmit && btn.offsetParent !== null) {
-          try { 
-            btn.scrollIntoView({ behavior: 'instant', block: 'center' });
-            btn.click(); 
-            return true;
-          } catch(e) {}
+        if (isNav && btn.offsetParent !== null) {
+          btn.click();
+          return true;
         }
       }
-      
-      // Also check for any prominent button that might be hidden
-      for (const btn of document.querySelectorAll('button')) {
-        const text = (btn.textContent || '').trim();
-        const rect = btn.getBoundingClientRect();
-        // Look for buttons with reasonable size, not standard form buttons
-        if (text.length > 0 && text.length < 30 && rect.width > 50 && rect.height > 20) {
-          const notForm = !text.toLowerCase().includes('submit');
-          if (notForm && btn.offsetParent !== null) {
-            try { 
-              btn.click(); 
-              return true;
-            } catch(e) {}
-          }
-        }
-      }
-      
       return false;
     });
     
@@ -262,12 +248,12 @@ async function solveStep(page, step) {
     await delay(30);
   }
   
-  // Try modal first
+  // Handle modal (radio only)
   await handleScrollableModal(page);
   await delay(150);
   
-  // Then try navigation button
-  await findNavigationButton(page);
+  // Only if no modal, try nav button
+  await findNavigationButtonOnMainPage(page);
   await delay(100);
   
   await closePopups(page);
@@ -300,8 +286,8 @@ async function solveStep(page, step) {
 
 async function run() {
   console.log('╔════════════════════════════════════════════╗');
-  console.log('║  Browser Challenge Agent v18               ║');
-  console.log('║  Modal radio + Navigation button           ║');
+  console.log('║  Browser Challenge Agent v19               ║');
+  console.log('║  Avoid trap buttons                        ║');
   console.log('╚════════════════════════════════════════════╝\n');
   
   metrics.startTime = Date.now();
@@ -361,16 +347,13 @@ async function run() {
         await delay(300);
       } else {
         stuckCount++;
-        if (stuckCount === 55) {
+        if (stuckCount === 60) {
           await page.screenshot({ path: `stuck-step${step}.png` });
           console.log(`  [Stuck on step ${step}]`);
         }
-        if (stuckCount > 75) {
-          stuckCount = 0;
-        }
       }
       
-      await delay(40);
+      await delay(35);
     }
     
   } catch (error) {
