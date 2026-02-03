@@ -1,6 +1,6 @@
 /**
- * Browser Challenge Agent v16
- * Keyboard scrolling in modals (End key)
+ * Browser Challenge Agent v17
+ * Mouse wheel scrolling + tab into modal
  */
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -82,26 +82,36 @@ async function closePopups(page) {
   });
 }
 
-// Use keyboard to scroll modal + wheel events
+// Use mouse wheel on modal + tab navigation
 async function handleScrollableModal(page) {
-  // Click inside modal to focus it
-  try {
-    const modal = await page.$('.fixed, [role="dialog"], [class*="modal"]');
-    if (modal) {
-      await modal.click();
+  // Find scrollable element in modal and get its position
+  const scrollInfo = await page.evaluate(() => {
+    const scrollables = [];
+    document.querySelectorAll('*').forEach(el => {
+      const style = window.getComputedStyle(el);
+      if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
+          el.scrollHeight > el.clientHeight + 20) {
+        const rect = el.getBoundingClientRect();
+        scrollables.push({
+          x: rect.x + rect.width / 2,
+          y: rect.y + rect.height / 2,
+          height: el.scrollHeight
+        });
+      }
+    });
+    return scrollables[0] || null;
+  });
+  
+  if (scrollInfo) {
+    // Move mouse to scrollable area and use wheel
+    await page.mouse.move(scrollInfo.x, scrollInfo.y);
+    for (let i = 0; i < 10; i++) {
+      await page.mouse.wheel(0, 300);
       await delay(50);
     }
-  } catch (e) {}
-  
-  // Use keyboard to scroll - End key goes to bottom
-  for (let i = 0; i < 3; i++) {
-    await page.keyboard.press('End');
-    await delay(100);
-    await page.keyboard.press('PageDown');
-    await delay(100);
   }
   
-  // Also try mouse wheel scroll on any overflow element
+  // Also use JS scroll
   await page.evaluate(() => {
     document.querySelectorAll('*').forEach(el => {
       const style = window.getComputedStyle(el);
@@ -113,6 +123,12 @@ async function handleScrollableModal(page) {
   });
   
   await delay(200);
+  
+  // Tab through elements to find radios
+  for (let i = 0; i < 15; i++) {
+    await page.keyboard.press('Tab');
+    await delay(30);
+  }
   
   // Now try to find and click correct radio
   const clicked = await page.evaluate(() => {
@@ -252,8 +268,8 @@ async function solveStep(page, step) {
 
 async function run() {
   console.log('╔════════════════════════════════════════════╗');
-  console.log('║  Browser Challenge Agent v16               ║');
-  console.log('║  Keyboard scrolling                        ║');
+  console.log('║  Browser Challenge Agent v17               ║');
+  console.log('║  Mouse wheel + Tab navigation              ║');
   console.log('╚════════════════════════════════════════════╝\n');
   
   metrics.startTime = Date.now();
